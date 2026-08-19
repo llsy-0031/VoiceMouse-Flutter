@@ -22,12 +22,9 @@
 | 权限需求 | 辅助功能（UIAccess 模拟输入） | 辅助功能（Accessibility） |
 | 开机自启 | 启动项注册表/目录 | LaunchAgents plist |
 
-## 已知限制（详见 CHANGELOG Known Issues）
+## 已知限制
 
-- macOS 无全屏/游戏窗口自动识别（checkSafety 恒安全），全屏请用 Ctrl+Alt+F12。
-- macOS 设备列表为空（无设备枚举）。
-- 录制快捷键期间"测试快捷键"会被拦截。
-- 补发原点击时若光标已移动会被拉回。
+见 [CHANGELOG.md](../CHANGELOG.md) 的 Known Issues（唯一权威列表；平台相关限制对支持范围有影响时在此补充）。
 
 ## 动态规则核对（每次 Release 前检查）
 

@@ -8,12 +8,10 @@
 | `VoiceMouse-<ver>-macos-arm64.zip` | GitHub Actions macos-latest | ✅ ad-hoc 签名（Gatekeeper 拦截） | ❌ 未公证 |
 | `SHA256SUMS.txt` | CI release job 自动生成 | - | - |
 
-## 决策（2026-08-20 记录）
+## 决策
 
-- ❌ 不做 Developer ID 签名 / Notarization（需付费开发者账号）。
-- ❌ 不做 Windows 代码签名证书（需付费）。
-- ❌ 不发布 Windows ARM64 / macOS Intel。
-- ❌ 不做应用内自动更新（离线工具，用户从 GitHub Release 手动下载）。
+不发布 Windows ARM64 / macOS Intel；不做签名公证；不做自动更新。
+（完整记录见 [docs/PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md)。）
 
 ## Release 流程（CI 自动）
 
