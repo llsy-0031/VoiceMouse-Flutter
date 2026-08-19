@@ -2,6 +2,11 @@ name: Build macOS (ad-hoc)
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（如 v1.0.0），留空则生成 vYYYY.MM.DD.HHmm'
+        required: false
+        default: ''
   push:
     tags:
       - 'v*'
@@ -47,3 +52,32 @@ jobs:
         with:
           name: VoiceMouse-macOS-adhoc
           path: build/macos/Build/Products/Release/VoiceMouse_macOS_adhoc.zip
+
+      - name: determine release version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=v$(date +%Y.%m.%d.%H%M)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.version }}" \
+            "build/macos/Build/Products/Release/VoiceMouse_macOS_adhoc.zip" \
+            --repo "${{ github.repository }}" \
+            --title "VoiceMouse ${{ steps.version.outputs.version }} (macOS)" \
+            --notes "macOS 版（ad-hoc 签名）自动构建产物。
+
+**安装说明**：
+1. 解压 zip，将 VoiceMouse.app 拖入「应用程序」
+2. 首次打开：右键 → 打开（ad-hoc 签名，Gatekeeper 会拦截，属正常）
+3. 系统设置 → 隐私与安全性 → 辅助功能 → 勾选 VoiceMouse
+4. 若已开启 macOS 听写，默认快捷键 FN 可直接使用
+
+> Windows 版请从仓库 releases 的 win64 附件下载。"
