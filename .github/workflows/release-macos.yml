@@ -1,0 +1,49 @@
+name: Build macOS (ad-hoc)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.x'
+          channel: 'stable'
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: analyze
+        run: flutter analyze
+
+      - name: test
+        run: flutter test
+
+      - name: build macos release (ad-hoc)
+        run: flutter build macos --release
+
+      - name: ad-hoc codesign
+        run: |
+          codesign --force --deep --sign - "build/macos/Build/Products/Release/VoiceMouse.app"
+
+      - name: verify signature
+        run: codesign --verify --deep --strict "build/macos/Build/Products/Release/VoiceMouse.app"
+
+      - name: package zip
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r VoiceMouse_macOS_adhoc.zip VoiceMouse.app
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceMouse-macOS-adhoc
+          path: build/macos/Build/Products/Release/VoiceMouse_macOS_adhoc.zip
