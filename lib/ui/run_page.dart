@@ -21,12 +21,21 @@ class RunPage extends StatelessWidget {
     return SingleChildScrollView(
       key: ValueKey('run'),
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 30),
-      child: Column(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ===== 状态卡片 =====
           _StatusCard(controller: c),
           const SizedBox(height: 14),
+
+          // ===== 权限横幅 =====
+          if (c.backend.needsPermission()) ...[
+            _PermissionBanner(controller: c),
+            const SizedBox(height: 14),
+          ],
 
           // ===== 适用说明 =====
           _NoticeCard(colors: colors),
@@ -91,6 +100,8 @@ class RunPage extends StatelessWidget {
           // ===== 安全状态行 =====
           _SafetyLine(controller: c),
         ],
+          ),
+        ),
       ),
     );
   }
@@ -170,6 +181,42 @@ class _StatusCard extends StatelessWidget {
                 onChanged: (v) => v ? c.startRunning() : c.pauseRunning(),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================ 权限横幅 ============================
+
+class _PermissionBanner extends StatelessWidget {
+  const _PermissionBanner({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = colorsOf(context);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.redSoft,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.security, size: 18, color: colors.red),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('需要「辅助功能」权限才能监听鼠标按键。',
+                style: TextStyle(fontSize: 12.5, color: colors.text, height: 1.4)),
+          ),
+          const SizedBox(width: 10),
+          VMFilledButton(
+            label: '打开系统设置',
+            background: colors.red,
+            onPressed: controller.openPermission,
           ),
         ],
       ),

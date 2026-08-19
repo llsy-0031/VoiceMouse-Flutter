@@ -23,7 +23,10 @@ class SettingsPage extends StatelessWidget {
     return SingleChildScrollView(
       key: const ValueKey('settings'),
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 30),
-      child: Column(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('设置', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: colors.text)),
@@ -120,6 +123,8 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ),
                     VMGhostButton(label: '测试', onPressed: c.testShortcut),
+                    const SizedBox(width: 8),
+                    VMGhostButton(label: '录制校准', onPressed: () => _openRecal(context)),
                   ],
                 ),
                 if (src == 'ime') ...[
@@ -216,6 +221,8 @@ class SettingsPage extends StatelessWidget {
             ),
           ),
         ],
+          ),
+        ),
       ),
     );
   }
@@ -305,6 +312,7 @@ class SettingsPage extends StatelessWidget {
   void _openRecal(BuildContext context) {
     final colors = colorsOf(context);
     String recMode = 'multi';
+    final manualCtrl = TextEditingController(text: controller.settings['shortcut'] is String && '${controller.settings['shortcut']}' != 'WIN+H' ? '${controller.settings['shortcut']}' : '');
     showVMModal(
       context,
       title: '录制你的语音快捷键',
@@ -370,6 +378,57 @@ class SettingsPage extends StatelessWidget {
                     ],
                   ],
                 ),
+              ),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Text('或手动输入快捷键',
+                  style: TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600, color: colors.text)),
+              const SizedBox(height: 4),
+              Text('格式如 WIN+H、CTRL+SHIFT+V、F8；不区分大小写。',
+                  style: TextStyle(fontSize: 12.5, color: colors.text3)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: manualCtrl,
+                      style: TextStyle(fontSize: 14, color: colors.text),
+                      decoration: InputDecoration(
+                        hintText: '例如 WIN+H',
+                        hintStyle: TextStyle(fontSize: 13, color: colors.text3),
+                        isDense: true,
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        filled: true,
+                        fillColor: colors.cardAlt,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(9),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  VMFilledButton(
+                    label: '应用',
+                    onPressed: () {
+                      final text = manualCtrl.text.trim();
+                      if (text.isEmpty) {
+                        c.recalCancel();
+                        Navigator.of(context).pop();
+                        return;
+                      }
+                      try {
+                        c.applyManualShortcut(text);
+                        Navigator.of(context).pop();
+                      } catch (e) {
+                        controller.showAlert('快捷键无效', '$e');
+                      }
+                    },
+                  ),
+                ],
               ),
             ],
           );

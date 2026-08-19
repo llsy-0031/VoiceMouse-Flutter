@@ -581,6 +581,22 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 对外弹窗提示（供 UI 直接调用）。
+  void showAlert(String title, String message) => _showAlert(title, message);
+
+  // ============================ 手动输入快捷键（录制校准替代） ============================
+
+  /// 手动输入快捷键并保存（来源切到输入法，标记为用户手动设置）。
+  void applyManualShortcut(String text) {
+    final combo = shortcut_mod.normalizeShortcut(text);
+    settings['shortcut'] = combo;
+    settings['shortcut_source'] = 'ime';
+    settings['shortcut_manual'] = true;
+    _saveFromUi();
+    _toast('已设置快捷键：$combo');
+    notifyListeners();
+  }
+
   void clearAlert() {
     lastAlertTitle = null;
     lastAlertMessage = null;

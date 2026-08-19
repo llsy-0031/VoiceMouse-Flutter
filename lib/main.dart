@@ -170,6 +170,7 @@ class VoiceMouseApp extends StatefulWidget {
 class _VoiceMouseAppState extends State<VoiceMouseApp> with TrayListener {
   late final PlatformBackend _backend;
   late final AppController _controller;
+  AppLifecycleListener? _lifecycle;
 
   @override
   void initState() {
@@ -179,6 +180,16 @@ class _VoiceMouseAppState extends State<VoiceMouseApp> with TrayListener {
     _controller.start();
     _initTray();
     trayManager.addListener(this);
+    // 录制中切走窗口（失焦）自动退出录制，避免键盘被钩子长期吞掉
+    _lifecycle = AppLifecycleListener(
+      onInactive: _onWindowInactive,
+    );
+  }
+
+  void _onWindowInactive() {
+    if (_controller.recordingCombo != null) {
+      _controller.recalCancel();
+    }
   }
 
   Future<void> _initTray() async {
@@ -233,6 +244,7 @@ class _VoiceMouseAppState extends State<VoiceMouseApp> with TrayListener {
 
   @override
   void dispose() {
+    _lifecycle?.dispose();
     trayManager.removeListener(this);
     _controller.shutdown();
     super.dispose();
