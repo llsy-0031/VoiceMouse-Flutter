@@ -6,7 +6,11 @@ import 'dart:io';
 
 const String appDirName = 'VoiceMouseMVP';
 
+/// 当前数据 schema 版本。升级结构时递增并提供迁移逻辑（见 [migrateSettings]）。
+const int kSchemaVersion = 1;
+
 const Map<String, dynamic> defaultSettings = {
+  'schema_version': kSchemaVersion,
   'button': 'middle',
   'mode': 'tap_double',
   'shortcut': 'WIN+H',
@@ -32,10 +36,12 @@ Directory configDir() {
 File configPath() => File('${configDir().path}${Platform.pathSeparator}settings.json');
 File statsPath() => File('${configDir().path}${Platform.pathSeparator}stats.json');
 
+/// 读取并迁移设置：旧版本缺字段补默认值；schema 升级走 [migrateSettings]。
 Map<String, dynamic> loadSettings() {
   try {
     final raw = configPath().readAsStringSync();
     final data = jsonDecode(raw) as Map<String, dynamic>;
+    migrateSettings(data);
     final merged = Map<String, dynamic>.from(defaultSettings)..addAll(data);
     return merged;
   } catch (_) {
@@ -43,13 +49,33 @@ Map<String, dynamic> loadSettings() {
   }
 }
 
+/// 设置结构迁移入口：根据旧文件中的 schema_version 逐级升级。
+/// 当前只有 v1，后续新增字段时在此追加（保持幂等，失败不动原数据）。
+void migrateSettings(Map<String, dynamic> data) {
+  final ver = data['schema_version'] as num? ?? 0;
+  if (ver == kSchemaVersion) return;
+  data['schema_version'] = kSchemaVersion;
+  // 示例（未来版本升级）：
+  // if (ver < 2) { ... }
+}
+
+/// 原子写：先写临时文件再 rename 替换，避免崩溃/断电损坏主数据。
+void _atomicWrite(File file, String content) {
+  configDir().createSync(recursive: true);
+  final tmp = File('${file.path}.tmp');
+  tmp.writeAsStringSync(content, flush: true);
+  if (file.existsSync()) {
+    // 写前保留一份备份，供手动恢复
+    final bak = File('${file.path}.bak');
+    if (!bak.existsSync()) file.copySync(bak.path);
+  }
+  tmp.renameSync(file.path);
+}
+
 void saveSettings(Map<String, dynamic> settings) {
   try {
-    configDir().createSync(recursive: true);
-    configPath().writeAsStringSync(
-      const JsonEncoder.withIndent('  ').convert(settings),
-      flush: true,
-    );
+    settings['schema_version'] = kSchemaVersion;
+    _atomicWrite(configPath(), const JsonEncoder.withIndent('  ').convert(settings));
   } catch (_) {
     // 写失败不阻断主流程
   }
@@ -76,12 +102,20 @@ Map<String, dynamic> loadStats() {
 
 void saveStats(Map<String, dynamic> stats) {
   try {
-    configDir().createSync(recursive: true);
-    statsPath().writeAsStringSync(
-      const JsonEncoder.withIndent('  ').convert(stats),
-      flush: true,
-    );
+    _atomicWrite(statsPath(), const JsonEncoder.withIndent('  ').convert(stats));
   } catch (_) {}
+}
+
+/// 重置全部数据（设置与统计），返回是否成功。
+bool resetAllData() {
+  try {
+    for (final f in [configPath(), statsPath()]) {
+      if (f.existsSync()) f.deleteSync();
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 /// 每次真正触发一次语音输入时调用。

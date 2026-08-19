@@ -183,6 +183,26 @@ class SettingsPage extends StatelessWidget {
                   value: c.settings['autostart'] == true,
                   onChanged: c.setAutostart,
                 ),
+                Divider(height: 1, color: colors.hairline),
+                VMListRow(
+                  title: '导出诊断包',
+                  subtitle: '日志 + 系统信息 + 配置（不含密钥），导出到桌面',
+                  trailing: IconButton(
+                    tooltip: '导出诊断包',
+                    onPressed: c.exportDiagnostics,
+                    icon: Icon(Icons.download_outlined, size: 19, color: colors.accent),
+                  ),
+                ),
+                Divider(height: 1, color: colors.hairline),
+                VMListRow(
+                  title: '重置设置',
+                  subtitle: '恢复默认设置并清空统计',
+                  trailing: IconButton(
+                    tooltip: '重置设置',
+                    onPressed: () => _confirmReset(context),
+                    icon: Icon(Icons.restart_alt, size: 19, color: colors.red),
+                  ),
+                ),
               ],
             ),
           ),
@@ -197,6 +217,27 @@ class SettingsPage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _confirmReset(BuildContext context) {
+    showVMModal(
+      context,
+      title: '重置设置',
+      child: const Text('将恢复默认设置并清空使用统计（不会删除诊断日志）。确定继续？'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        VMFilledButton(
+          label: '重置',
+          onPressed: () {
+            Navigator.of(context).pop();
+            controller.resetSettings();
+          },
+        ),
+      ],
     );
   }
 

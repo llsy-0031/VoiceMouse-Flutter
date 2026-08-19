@@ -8,17 +8,19 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/diagnostics.dart' as diagnostics_mod;
+import '../core/log.dart' as log_mod;
 import '../core/press_state.dart';
 import '../core/router.dart';
 import '../core/safety.dart';
+import '../core/settings.dart' as settings_mod;
 import '../core/settings.dart';
 import '../core/shortcut.dart' as shortcut_mod;
 import '../platform/platform_backend.dart';
-
-const String kVersion = 'v0.3';
 
 const Map<String, String> buttonLabels = {
   'middle': '鼠标中键',
@@ -127,7 +129,9 @@ class AppController extends ChangeNotifier {
     refreshDevices();
     try {
       backend.startHook(router.handle);
+      log_mod.logInfo('hook', '鼠标监听已启动 (${backend.name})');
     } catch (e) {
+      log_mod.logError('hook', '鼠标监听启动失败: $e');
       _toast('鼠标监听启动失败：$e');
     }
     _startSafetyPoller();
@@ -264,6 +268,39 @@ class AppController extends ChangeNotifier {
     _saveFromUi();
     _toast(on ? '语音鼠标已开启' : '已暂停，鼠标恢复原功能');
     notifyListeners();
+  }
+
+  /// 重置设置与统计为出厂状态（不删除诊断日志）。
+  void resetSettings() {
+    if (!settings_mod.resetAllData()) {
+      _toast('重置失败：文件被占用或权限不足');
+      return;
+    }
+    settings = loadSettings();
+    _settingsCache = Map<String, dynamic>.from(settings);
+    _running = settings['enabled'] == true;
+    try {
+      final dcw = backend.getDoubleClickTime();
+      press.configure(settings['mode'] ?? 'tap_double', doubleClickWindow: dcw);
+    } catch (_) {
+      press.configure(settings['mode'] ?? 'tap_double');
+    }
+    saveSettings(settings);
+    _toast('已重置设置与统计');
+    notifyListeners();
+  }
+
+  /// 导出诊断包到桌面（日志 + 系统信息 + 脱敏配置）。
+  void exportDiagnostics() {
+    final desktop = Platform.environment['USERPROFILE'] ??
+        Platform.environment['HOME'] ??
+        Platform.environment['TEMP'] ??
+        '.';
+    final dir =
+        '$desktop${Platform.pathSeparator}VoiceMouse诊断_${DateTime.now().millisecondsSinceEpoch}';
+    final r = diagnostics_mod.exportDiagnostics(dir);
+    _toast(r.message);
+    if (!r.ok) _showAlert('导出诊断包失败', r.message);
   }
 
   void startRunning() {
@@ -473,7 +510,12 @@ class AppController extends ChangeNotifier {
       final shortcut = '${_settingsCache['shortcut'] ?? 'WIN+H'}';
       recordTrigger();
       final r = backend.sendShortcut(shortcut);
-      if (!r.ok) _toast(r.message);
+      if (!r.ok) {
+        log_mod.logWarn('trigger', '发送快捷键失败: $shortcut -> ${r.message}');
+        _toast(r.message);
+      } else {
+        log_mod.logInfo('trigger', '已触发 $shortcut');
+      }
     } else if (kind == triggerReplayClick) {
       final button = '${_settingsCache['button'] ?? 'middle'}';
       final r = backend.replayMouseClick(button);

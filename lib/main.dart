@@ -1,4 +1,5 @@
 // ignore_for_file: non_constant_identifier_names, camel_case_types, library_private_types_in_public_api
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -7,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:tray_manager/tray_manager.dart';
 
 import 'app/app_controller.dart';
+import 'core/log.dart';
 import 'platform/macos_backend.dart';
 import 'platform/platform_backend.dart';
 import 'platform/win32_backend.dart';
@@ -15,18 +17,24 @@ import 'ui/theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isWindows) {
-    if (!ensureSingleInstance()) {
-      // 不能只 return：ensureInitialized 已拉起引擎线程，进程不会退出
-      exit(0);
+  logInit();
+  runZonedGuarded(() {
+    if (Platform.isWindows) {
+      if (!ensureSingleInstance()) {
+        // 不能只 return：ensureInitialized 已拉起引擎线程，进程不会退出
+        exit(0);
+      }
+    } else if (Platform.isMacOS) {
+      // macOS 单实例：文件锁（~/Library/Application Support/voicemouse.lock）
+      if (!_macSingleInstance()) {
+        exit(0);
+      }
     }
-  } else if (Platform.isMacOS) {
-    // macOS 单实例：文件锁（~/Library/Application Support/voicemouse.lock）
-    if (!_macSingleInstance()) {
-      exit(0);
-    }
-  }
-  runApp(const VoiceMouseApp());
+    runApp(const VoiceMouseApp());
+  }, (Object error, StackTrace stack) {
+    // 未处理异常落盘，供"导出诊断包"排查
+    logFatal('crash', '$error\n$stack');
+  });
 }
 
 /// macOS 单实例：对 Application Support 目录下的锁文件加排他锁。

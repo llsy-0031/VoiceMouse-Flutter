@@ -18,12 +18,20 @@
 
 | 平台 | 后端 | 说明 |
 |------|------|------|
-| Windows x64 | `lib/platform/win32_backend.dart`（WH_MOUSE_LL 钩子 + SendInput） | 本地构建 |
-| macOS | `lib/platform/macos_backend.dart`（CGEventTap） | GitHub Actions 构建（ad-hoc 签名） |
+| Windows x64 | `lib/platform/win32_backend.dart`（WH_MOUSE_LL 钩子 + SendInput） | 本地构建 / CI 构建 |
+| macOS arm64（Apple Silicon） | `lib/platform/macos_backend.dart`（CGEventTap） | GitHub Actions 构建（ad-hoc 签名） |
+
+> 版本决策：不发布 Windows ARM64 / macOS Intel；不做签名公证（详见 `docs/PLATFORM_SUPPORT.md`）。
 
 macOS 注意：
 - 首次使用需在「系统设置 → 隐私与安全性 → 辅助功能」勾选本应用
 - ad-hoc 签名包首次打开需右键 → 打开（或 `xattr -cr` 去除隔离属性）
+- 全屏/游戏场景请用 Ctrl+Alt+F12 紧急停用（macOS 无自动全屏识别）
+
+## 文档
+
+- `docs/PROJECT_BRIEF.md` 项目定位 · `docs/PLATFORM_SUPPORT.md` 支持矩阵 · `docs/TEST_PLAN.md` 测试计划 · `docs/RELEASE.md` 发布流程 · `docs/HANDOFF.md` 项目交接
+- `CHANGELOG.md` 版本变更与已知限制
 
 ## 构建
 
@@ -45,5 +53,7 @@ macOS 云构建：推 tag `v*` 或手动触发 Actions 工作流 `.github/workfl
 
 ## 数据位置
 
-- Windows：`%APPDATA%\VoiceMouseMVP\`
-- macOS：`~/Library/Application Support/voicemouse/`
+- Windows：`%APPDATA%\VoiceMouseMVP\`（设置 / 统计 / 日志）
+- macOS：`~/Library/Application Support/VoiceMouseMVP/`（设置 / 统计 / 日志）
+
+设置页可「导出诊断包」（日志 + 系统信息 + 脱敏配置）到桌面。

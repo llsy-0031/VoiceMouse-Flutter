@@ -1,10 +1,10 @@
-name: Build macOS (ad-hoc)
+name: Build & Release (macOS + Windows)
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号（如 v1.0.0），留空则生成 vYYYY.MM.DD.HHmm'
+        description: '发布版本号（如 v1.0.1），留空则生成 vYYYY.MM.DD.HHmm'
         required: false
         default: ''
   push:
@@ -12,10 +12,30 @@ on:
       - 'v*'
 
 jobs:
+  determine-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      clean: ${{ steps.version.outputs.clean }}
+    steps:
+      - name: determine release version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=v$(date +%Y.%m.%d.%H%M)" >> "$GITHUB_OUTPUT"
+          fi
+          ver="${{ github.ref_name }}"
+          [ "${{ github.event_name }}" != "push" ] && ver="${{ inputs.version }}"
+          [ -z "$ver" ] && ver="v$(date +%Y.%m.%d.%H%M)"
+          echo "clean=${ver#v}" >> "$GITHUB_OUTPUT"
+
   build-macos:
+    needs: determine-version
     runs-on: macos-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -44,42 +64,100 @@ jobs:
       - name: verify signature
         run: codesign --verify --deep --strict "build/macos/Build/Products/Release/VoiceMouse.app"
 
-      - name: package zip
+      - name: package zip (arm64 only)
         run: |
           cd build/macos/Build/Products/Release
-          zip -r VoiceMouse_macOS_adhoc.zip VoiceMouse.app
+          zip -r "VoiceMouse-${{ needs.determine-version.outputs.clean }}-macos-arm64.zip" VoiceMouse.app
 
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceMouse-macOS-adhoc
-          path: build/macos/Build/Products/Release/VoiceMouse_macOS_adhoc.zip
+          name: macos-arm64-zip
+          path: build/macos/Build/Products/Release/VoiceMouse-${{ needs.determine-version.outputs.clean }}-macos-arm64.zip
+          if-no-files-found: error
 
-      - name: determine release version
-        id: version
+  build-windows:
+    needs: determine-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: 'stable'
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: analyze
+        run: flutter analyze
+
+      - name: test
+        run: flutter test
+
+      - name: build windows release (x64)
+        run: flutter build windows --release
+
+      - name: package zip (x64 only)
+        shell: pwsh
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=v$(date +%Y.%m.%d.%H%M)" >> "$GITHUB_OUTPUT"
-          fi
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "VoiceMouse-${{ needs.determine-version.outputs.clean }}-windows-x64.zip" -Force
 
-      - name: create GitHub Release
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-zip
+          path: VoiceMouse-${{ needs.determine-version.outputs.clean }}-windows-x64.zip
+          if-no-files-found: error
+
+  release:
+    needs: [determine-version, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: generate SHA256SUMS
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+
+      - name: create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.version.outputs.version }}" \
-            "build/macos/Build/Products/Release/VoiceMouse_macOS_adhoc.zip" \
-            --repo "${{ github.repository }}" \
-            --title "VoiceMouse ${{ steps.version.outputs.version }} (macOS)" \
-            --notes "macOS 版（ad-hoc 签名）自动构建产物。
-            
-            **安装说明**：
-            1. 解压 zip，将 VoiceMouse.app 拖入「应用程序」
-            2. 首次打开：右键 → 打开（ad-hoc 签名，Gatekeeper 会拦截，属正常）
-            3. 系统设置 → 隐私与安全性 → 辅助功能 → 勾选 VoiceMouse
-            4. 若已开启 macOS 听写，默认快捷键 FN 可直接使用
-            
-            > Windows 版请从仓库 releases 的 win64 附件下载。"
+          cd artifacts
+          VERSION="${{ needs.determine-version.outputs.version }}"
+          if gh release view "$VERSION" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            gh release upload "$VERSION" * --repo "${{ github.repository }}" --clobber
+          else
+            gh release create "$VERSION" * \
+              --repo "${{ github.repository }}" \
+              --title "VoiceMouse $VERSION" \
+              --notes "**支持平台**（本版本决策：不发布 Windows ARM64 / macOS Intel，不做签名公证）
+
+              - Windows x64（未签名，SmartScreen 可能提示）
+              - macOS arm64 / Apple Silicon（ad-hoc 签名，未公证）
+
+              **Windows 安装说明**：
+              1. 下载 VoiceMouse-*-windows-x64.zip 并解压
+              2. 运行 voicemouse.exe
+              3. 系统会请求辅助功能权限，请允许（用于监听鼠标按键）
+
+              **macOS 安装说明**：
+              1. 解压 zip，将 VoiceMouse.app 拖入「应用程序」
+              2. 首次打开：右键 → 打开（ad-hoc 签名，Gatekeeper 拦截属正常）
+              3. 系统设置 → 隐私与安全性 → 辅助功能 → 勾选 VoiceMouse
+              4. 若已开启 macOS 听写，默认快捷键 FN 可直接使用
+
+              **紧急停用**：Ctrl+Alt+F12（双平台）
+
+              **Known Issues / 已知限制**：见 CHANGELOG.md"
+          fi
