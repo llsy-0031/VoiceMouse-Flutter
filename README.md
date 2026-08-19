@@ -42,15 +42,35 @@ flutter build macos --release      # macOS（需 Mac；或走 GitHub Actions）
 
 macOS 云构建：推 tag `v*` 或手动触发 Actions 工作流 `.github/workflows/release-macos.yml`，自动产出双平台 zip + SHA256SUMS.txt 并发布 Release。
 
+## 下载
+
+最新版在 [GitHub Releases](https://github.com/llsy-0031/VoiceMouse-Flutter/releases)（含 SHA256SUMS.txt）。
+
 ## 文档
 
 | 文档 | 内容 |
 |------|------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构、关键设计、禁止破坏的约束 |
 | [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) | 支持矩阵、依赖平台能力、版本决策 |
 | [docs/TEST_PLAN.md](docs/TEST_PLAN.md) | 测试计划与用例 |
 | [docs/RELEASE.md](docs/RELEASE.md) | 发布流程、产物清单、发布前检查 |
-| [docs/HANDOFF.md](docs/HANDOFF.md) | 项目交接（架构、约束、下一步） |
+| [docs/SECURITY.md](docs/SECURITY.md) | 权限、数据处理、漏洞报告 |
+| [docs/HANDOFF.md](docs/HANDOFF.md) | 项目交接（版本/依赖/CI 状态/下一步） |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更与 Known Issues（面向用户） |
+
+## 目录结构
+
+```
+lib/
+  app/app_controller.dart    # 设置/路由/状态机编排
+  core/                      # 平台无关：press_state、shortcut、settings、router、safety、log、diagnostics、version
+  platform/                  # win32_backend / macos_backend / PlatformBackend 接口
+  ui/                        # run_page、settings_page、app_shell、theme、widgets
+test/                        # 单元测试（15 用例）
+.github/workflows/           # CI：双平台构建 + Release
+docs/                        # 开发者文档
+windows/ macos/              # 平台壳工程（Flutter 生成 + 少量定制）
+```
 
 ## 技术要点
 

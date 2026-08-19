@@ -17,14 +17,8 @@
   诊断导出、重置设置。
 
 ## 当前架构
-```
-UI (run_page/settings_page/app_shell)
-  → AppController（设置/路由/状态机编排）
-  → PlatformBackend 接口
-      ├─ win32_backend（低层钩子+注入，前台窗口检测，RegisterHotKey）
-      └─ macos_backend（CGEventTap 后台 isolate + 共享内存轮询）
-  → core/（press_state 状态机、shortcut 解析、settings 存储、router、log、diagnostics）
-```
+
+分层图、关键设计、数据流、禁止破坏的约束：见 [docs/ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 关键依赖
 - Flutter 3.47.0（Stable，锁定）；dart 3.13。path_provider、tray_manager、win32、ffi。
@@ -49,11 +43,8 @@ UI (run_page/settings_page/app_shell)
 - 迁移入口：`lib/core/settings.dart` 的 `migrateSettings`（幂等）。
 
 ## 下一步
+
 - 用户实机验收 v1.0.1（重点：触发链路、双击保留、紧急热键、竖屏窗口、诊断导出）。
 - 视反馈修复；长期可做：macOS 全屏检测、设备枚举。
 
-## 禁止破坏的约束
-- `_poll`/tap 的共享内存槽位布局（_sSeq.._sEmerg）改动须同步 isolate 与主线程两侧。
-- macOS suppress 放行必须按"每次真实 post 前置 1"的语义，不要在键盘注入路径设置。
-- 默认快捷键 macOS 存 `'FN'`（显示层单独转 'FN 连按两下'），不可混存。
-- Flutter 版本锁 3.47.0，升级需单独任务并验证插件兼容。
+> 禁止破坏的约束见 ARCHITECTURE.md 同名章节（共享内存布局 / suppress 语义 / 'FN' 存储 / Flutter 锁版）。
