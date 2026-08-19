@@ -190,7 +190,7 @@ class AppController extends ChangeNotifier {
       if (src == 'system') {
         _settingsCache['shortcut'] = 'WIN+H';
       } else if (src == 'macos') {
-        _settingsCache['shortcut'] = 'FN 连按两下';
+        _settingsCache['shortcut'] = 'FN';
       } else if (src == 'ime') {
         final sel = _settingsCache['ime_selection'] ?? '';
         VoiceInputOption? opt;
@@ -408,8 +408,12 @@ class AppController extends ChangeNotifier {
   void testShortcut() {
     String shortcut;
     try {
-      shortcut = shortcut_mod.normalizeShortcut('${settings['shortcut'] ?? 'WIN+H'}');
-      settings['shortcut'] = shortcut;
+      if ((settings['shortcut_source'] ?? 'system') == 'macos') {
+        shortcut = 'FN';
+      } else {
+        shortcut = shortcut_mod.normalizeShortcut('${settings['shortcut'] ?? 'WIN+H'}');
+        settings['shortcut'] = shortcut;
+      }
       _saveFromUi();
     } catch (e) {
       _showAlert('快捷键无效', '$e');

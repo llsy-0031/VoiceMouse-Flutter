@@ -45,7 +45,7 @@ class RunPage extends StatelessWidget {
               children: [
                 VMListRow(
                   title: '触发按键',
-                  subtitle: '长按触发 · 短按保留原功能',
+                  subtitle: '单击触发 · 双击保留原功能',
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

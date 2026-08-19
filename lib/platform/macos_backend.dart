@@ -36,6 +36,7 @@ const int kCGEventRightMouseDown = 3;
 const int kCGEventRightMouseUp = 4;
 const int kCGEventKeyDown = 10;
 const int kCGEventKeyUp = 11;
+const int kCGEventFlagsChanged = 12;
 const int kCGEventOtherMouseDown = 25;
 const int kCGEventOtherMouseUp = 26;
 
@@ -43,6 +44,7 @@ const int kCGEventOtherMouseUp = 26;
 const int kCGHIDEventTap = 0;
 const int kCGHeadInsertEventTap = 0;
 const int kCGEventTapOptionDefault = 0;
+const int kCGEventTapOptionListenOnly = 1;
 
 // CGEventField
 const int kCGMouseEventButtonNumber = 12;
@@ -70,6 +72,7 @@ const int _sDown = 2;
 const int _sX = 3;
 const int _sY = 4;
 const int _sSuppress = 5;
+const int _sEmerg = 6;
 
 // 键盘共享内存槽位偏移
 const int _kSeq = 0;
@@ -316,6 +319,25 @@ Pointer<Void> _commonModes() {
   }
 }
 
+/// 紧急热键 tap 回调（listenOnly，不吞事件）：Ctrl+Alt+F12 → 写共享内存触发紧急停用。
+Pointer<Void> _emergencyTapCallback(
+    Pointer<Void> proxy, int type, Pointer<Void> event, Pointer<Void> userInfo) {
+  final sh = _gMouseShared;
+  if (sh == null) return event;
+  if (type == kCGEventKeyDown) {
+    final keycode = _gGetIntegerValueField(event, kCGKeyboardEventKeycode);
+    if (keycode == 0x6F) {
+      // F12
+      final flags = _gGetIntegerValueField(event, kCGKeyboardEventEventFlags);
+      if (flags & kCGEventFlagMaskControl != 0 &&
+          flags & kCGEventFlagMaskAlternate != 0) {
+        sh[_sEmerg] = 1;
+      }
+    }
+  }
+  return event;
+}
+
 /// 后台 isolate 入口：创建鼠标 tap 并进入 runloop。
 void _macEventLoopMain(List<Object?> args) {
   try {
@@ -332,6 +354,17 @@ void _macEventLoopMain(List<Object?> args) {
     }
     final source = _gMachPortSource(nullptr, tap, 0);
     final rl = _gRunLoopGetCurrent();
+    // 紧急热键（Ctrl+Alt+F12）：listenOnly 键盘 tap，不吞事件
+    final emergMask = (1 << kCGEventKeyDown) | (1 << kCGEventFlagsChanged);
+    final emergCb =
+        Pointer.fromFunction<_CGEventTapCallBack>(_emergencyTapCallback);
+    final emergTap = _gTapCreate(kCGHIDEventTap, kCGHeadInsertEventTap,
+        kCGEventTapOptionListenOnly, emergMask, emergCb, nullptr);
+    if (emergTap != nullptr) {
+      final emergSource = _gMachPortSource(nullptr, emergTap, 0);
+      _gRunLoopAddSource(rl, emergSource, _commonModes());
+      _gTapEnable(emergTap, 1);
+    }
     _gRunLoopAddSource(rl, source, _commonModes());
     _gTapEnable(tap, 1);
     sendPort.send(('ready', tap));
@@ -386,6 +419,15 @@ class MacShortcutRecorder implements ShortcutRecorder {
 
   static const double recordTimeoutS = 30.0;
 
+  // macOS 修饰键 keycode（左右 Shift/Ctrl/Option/Cmd + Fn），不作为主键录入
+  static const Set<int> modifierKeycodes = {
+    0x38, 0x3C, // Shift
+    0x3B, 0x3E, // Control
+    0x3A, 0x3D, // Option
+    0x37, 0x36, // Command
+    0x3F, // Fn
+  };
+
   List<String> _mods(int flags) {
     final mods = <String>[];
     if (flags & kCGEventFlagMaskControl != 0) mods.add('CTRL');
@@ -421,12 +463,7 @@ class MacShortcutRecorder implements ShortcutRecorder {
       } catch (_) {}
       return true;
     }
-    if (mode == 'single') {
-      final mods = _mods(flags);
-      if (mods.isEmpty) _main = keycode;
-    } else {
-      _main = keycode;
-    }
+    if (!modifierKeycodes.contains(keycode)) _main = keycode;
     _notify();
     return true;
   }
@@ -546,6 +583,15 @@ class MacOSBackend implements PlatformBackend {
   void _poll() {
     final sh = _mouseShared;
     if (sh == null) return;
+    if (sh[_sEmerg] != 0) {
+      sh[_sEmerg] = 0;
+      if (!_emergencyDisabled) {
+        _emergencyDisabled = true;
+        try {
+          onEmergency?.call(true);
+        } catch (_) {}
+      }
+    }
     final seq = sh[_sSeq];
     if (seq == _lastSeq) return;
     _lastSeq = seq;
@@ -567,8 +613,7 @@ class MacOSBackend implements PlatformBackend {
       swallow = false;
     }
     if (!swallow) {
-      // router 决定保留原功能：补发合成点击
-      _suppressOnce();
+      // router 决定保留原功能：补发合成点击（_postMouseEvent 内部自动设置放行标记）
       _postMouseEvent(button, down);
     }
   }
@@ -586,10 +631,6 @@ class MacOSBackend implements PlatformBackend {
     _lastKeySeq = seq;
     if (sh[_kDown] != 1) return;
     rec.handle(sh[_kKeycode], sh[_kMods]);
-  }
-
-  void _suppressOnce() {
-    _mouseShared![_sSuppress] = 1;
   }
 
   @override
@@ -650,6 +691,8 @@ class MacOSBackend implements PlatformBackend {
         final ev = _gCreateMouseEvent(nullptr, type, pt.ref, cgButton);
         if (ev == nullptr) return;
         _gSetIntegerValueField(ev, kCGMouseEventButtonNumber, cgButton);
+        // 放行标记：tap 回调消费一次，确保本事件（及随后的 up）不再被吞
+        _mouseShared![_sSuppress] = 1;
         _gPost(kCGHIDEventTap, ev);
         _gCFRelease(ev);
       } finally {
@@ -678,7 +721,6 @@ class MacOSBackend implements PlatformBackend {
         };
       }
       final keycode = shortcut_mod.tokenToMacKeycode(parsed.main);
-      _suppressOnce();
       final source = _gEventSourceCreate(0);
       try {
         final down = _gCreateKeyboardEvent(source, keycode, 1);
@@ -699,7 +741,6 @@ class MacOSBackend implements PlatformBackend {
   }
 
   InjectResult _sendFnDoubleTap() {
-    _suppressOnce();
     final source = _gEventSourceCreate(0);
     try {
       for (var i = 0; i < 2; i++) {
@@ -721,7 +762,6 @@ class MacOSBackend implements PlatformBackend {
 
   @override
   InjectResult replayMouseClick(String button) {
-    _suppressOnce();
     _postMouseEvent(button, true);
     _postMouseEvent(button, false);
     return const InjectResult(true, '已补发原鼠标点击');

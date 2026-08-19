@@ -40,7 +40,7 @@ class SettingsPage extends StatelessWidget {
               children: [
                 VMListRow(
                   title: '使用按键',
-                  subtitle: '长按触发语音 · 短按保留原功能',
+                  subtitle: '单击触发语音 · 双击保留原功能',
                   trailing: const SizedBox.shrink(),
                 ),
                 const SizedBox(height: 4),
