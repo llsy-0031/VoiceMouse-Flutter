@@ -181,6 +181,9 @@ class Win32ShortcutRecorder implements ShortcutRecorder {
   void Function(String combo)? _onChange;
   void Function()? _onCancel;
 
+  /// 录制会话是否已结束（确认/取消/超时/ESC 后为 true）。
+  bool get isDone => _finished;
+
   /// 录制最长 30 秒后自动停止并释放钩子，防止误锁键盘
   static const double recordTimeoutS = 30.0;
   static const List<int> _toggleKeys = [0x14, 0x90, 0x91];
@@ -220,7 +223,7 @@ class Win32ShortcutRecorder implements ShortcutRecorder {
 
   /// 返回 True 表示吞掉该键。
   bool handle(int vk) {
-    if (_finished) return true;
+    if (_finished) return false;
     // 紧急组合键 Ctrl+Alt+F12：放行并强制退出录制
     if (vk == vkF12 && _ctrlAltDown()) {
       _finished = true;
@@ -435,6 +438,15 @@ class Win32Backend implements PlatformBackend {
     if (nCode < hcAction) return CallNextHookEx(0, nCode, wParam, lParam);
     final rec = _activeRecorder;
     if (rec == null) return CallNextHookEx(0, nCode, wParam, lParam);
+    if (rec.isDone) {
+      // 录制已结束：立即释放钩子与录制器，避免键盘被吞
+      _activeRecorder = null;
+      if (_keyboardHook != 0) {
+        UnhookWindowsHookEx(_keyboardHook);
+        _keyboardHook = 0;
+      }
+      return CallNextHookEx(0, nCode, wParam, lParam);
+    }
     if (wParam != wmKeyDown && wParam != wmSysKeyDown) {
       return CallNextHookEx(0, nCode, wParam, lParam);
     }

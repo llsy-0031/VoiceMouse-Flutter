@@ -417,6 +417,9 @@ class MacShortcutRecorder implements ShortcutRecorder {
   void Function()? _onCancel;
   Timer? _watchdog;
 
+  /// 录制会话是否已结束（确认/取消/超时/ESC 后为 true）。
+  bool get isDone => _finished;
+
   static const double recordTimeoutS = 30.0;
 
   // macOS 修饰键 keycode（左右 Shift/Ctrl/Option/Cmd + Fn），不作为主键录入
@@ -452,7 +455,7 @@ class MacShortcutRecorder implements ShortcutRecorder {
 
   bool handle(int keycode, int flags) {
     _lastFlags = flags;
-    if (_finished) return true;
+    if (_finished) return false;
     if (keycode == 0x35) {
       // ESC 取消
       _esc = true;
@@ -621,8 +624,9 @@ class MacOSBackend implements PlatformBackend {
   void _pollKeys() {
     final sh = _keyShared;
     final rec = _activeRecorder;
-    if (sh == null || rec == null) {
-      // 无录制会话时自动清理键盘 isolate
+    if (sh == null || rec == null || rec.isDone) {
+      // 无录制会话或录制已结束：释放录制器并停止键盘 isolate，避免键盘被吞
+      if (_activeRecorder != null) _activeRecorder = null;
       if (_keyIsolate != null) _stopKeyIsolate();
       return;
     }

@@ -106,11 +106,31 @@ class SettingsPage extends StatelessWidget {
                 Divider(height: 1, color: colors.hairline),
                 const SizedBox(height: 4),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if (src == 'ime') ...[
+                            Text('输入法',
+                                style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w500,
+                                    color: colors.text)),
+                            const SizedBox(height: 4),
+                            _ImeSelector(controller: c),
+                            if (_imeNote(c) != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(_imeNote(c)!,
+                                    style: TextStyle(
+                                        fontSize: 11.5,
+                                        color: colors.text3,
+                                        height: 1.4)),
+                              ),
+                            const SizedBox(height: 10),
+                          ],
                           Text('当前快捷键',
                               style: TextStyle(
                                   fontSize: 15, fontWeight: FontWeight.w500, color: colors.text)),
@@ -127,38 +147,6 @@ class SettingsPage extends StatelessWidget {
                     VMGhostButton(label: '录制校准', onPressed: () => _openRecal(context)),
                   ],
                 ),
-                if (src == 'ime') ...[
-                  const SizedBox(height: 12),
-                  Divider(height: 1, color: colors.hairline),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('输入法',
-                                style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w500,
-                                    color: colors.text)),
-                            const SizedBox(height: 4),
-                            _ImeSelector(controller: c),
-                            if (_imeNote(c) != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(_imeNote(c)!,
-                                    style: TextStyle(
-                                        fontSize: 11.5, color: colors.text3, height: 1.4)),
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      VMGhostButton(label: '录制校准', onPressed: () => _openRecal(context)),
-                    ],
-                  ),
-                ],
               ],
             ),
           ),
@@ -319,8 +307,11 @@ class SettingsPage extends StatelessWidget {
       child: StatefulBuilder(
         builder: (ctx, setState) {
           final c = controller;
-          final recording = c.recordingCombo != null;
-          return Column(
+          return ListenableBuilder(
+            listenable: c,
+            builder: (context, _) {
+              final recording = c.recordingCombo != null;
+              return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -431,6 +422,8 @@ class SettingsPage extends StatelessWidget {
                 ],
               ),
             ],
+              );
+            },
           );
         },
       ),
