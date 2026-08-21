@@ -2,15 +2,21 @@
 
 ## 发布产物（Required Targets）
 
-| 产物 | 构建方式 | 签名 | 公证 |
-|---|---|---|---|
-| `VoiceMouse-<ver>-windows-x64.zip` | GitHub Actions windows-latest（或本地） | ❌ 无（SmartScreen 可能提示） | 不适用 |
-| `VoiceMouse-<ver>-macos-arm64.zip` | GitHub Actions macos-latest | ✅ ad-hoc 签名（Gatekeeper 拦截） | ❌ 未公证 |
-| `SHA256SUMS.txt` | CI release job 自动生成 | - | - |
+| 平台 | 产物 | 构建方式 | 签名 | 公证 |
+|---|---|---|---|---|
+| Windows x64 | `VoiceMouse-<ver>-windows-x64-setup.exe` | GitHub Actions windows-latest + Inno Setup | ❌ 无（SmartScreen 可能提示） | 不适用 |
+| macOS arm64 | `VoiceMouse-<ver>-macos-arm64.dmg` 或 `.pkg` | GitHub Actions macos-latest + create-dmg/pkgbuild | ✅ ad-hoc 签名（Gatekeeper 拦截） | ❌ 未公证 |
+| 校验文件 | `SHA256SUMS.txt` | CI release job 自动生成 | - | - |
+
+旧版 `.zip` 压缩包发布方式已停用，统一使用安装器分发。
 
 ## 决策
 
-不发布 Windows ARM64 / macOS Intel；不做签名公证；不做自动更新。
+- 不发布 Windows ARM64 / macOS Intel。
+- 不做签名公证；不做自动更新。
+- Windows 使用 Inno Setup 生成安装程序（`02_发布包/installer/VoiceMouse_Installer_Windows.iss`）。
+- macOS 优先生成 `.dmg`（需要 `create-dmg`），回退为 `.pkg`。
+（完整记录见 [docs/PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md)。）
 （完整记录见 [docs/PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md)。）
 
 ## Release 流程（CI 自动）

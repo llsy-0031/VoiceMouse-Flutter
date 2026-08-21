@@ -1,10 +1,10 @@
-name: Build & Release (macOS + Windows)
+name: Build & Release (macOS + Windows installer)
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号（如 v1.0.1），留空则生成 vYYYY.MM.DD.HHmm'
+        description: '发布版本号（如 v1.0.3），留空则生成 vYYYY.MM.DD.HHmm'
         required: false
         default: ''
   push:
@@ -45,6 +45,9 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: install create-dmg
+        run: brew install create-dmg
+
       - name: flutter pub get
         run: flutter pub get
 
@@ -64,16 +67,23 @@ jobs:
       - name: verify signature
         run: codesign --verify --deep --strict "build/macos/Build/Products/Release/VoiceMouse.app"
 
-      - name: package zip (arm64 only)
+      - name: package dmg (arm64 only)
         run: |
           cd build/macos/Build/Products/Release
-          zip -r "VoiceMouse-${{ needs.determine-version.outputs.clean }}-macos-arm64.zip" VoiceMouse.app
+          create-dmg \
+            --volname "VoiceMouse ${{ needs.determine-version.outputs.clean }}" \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --app-drop-link 450 180 \
+            --icon "VoiceMouse.app" 150 180 \
+            "VoiceMouse-${{ needs.determine-version.outputs.clean }}-macos-arm64.dmg" \
+            "VoiceMouse.app"
 
       - name: upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: macos-arm64-zip
-          path: build/macos/Build/Products/Release/VoiceMouse-${{ needs.determine-version.outputs.clean }}-macos-arm64.zip
+          name: macos-arm64-dmg
+          path: build/macos/Build/Products/Release/VoiceMouse-${{ needs.determine-version.outputs.clean }}-macos-arm64.dmg
           if-no-files-found: error
 
   build-windows:
@@ -88,6 +98,9 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: install innosetup
+        run: choco install innosetup -y
+
       - name: flutter pub get
         run: flutter pub get
 
@@ -100,16 +113,21 @@ jobs:
       - name: build windows release (x64)
         run: flutter build windows --release
 
-      - name: package zip (x64 only)
+      - name: build installer (x64)
         shell: pwsh
         run: |
-          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "VoiceMouse-${{ needs.determine-version.outputs.clean }}-windows-x64.zip" -Force
+          $ver = "${{ needs.determine-version.outputs.clean }}"
+          $iss = Get-Content -Path "installer/VoiceMouse_Installer_Windows.iss" -Raw
+          $iss = $iss -replace '#define MyAppVersion "1\.0\.3"', "#define MyAppVersion `"$ver`""
+          $iss = $iss -replace '#define MyAppOutputName "VoiceMouse-" \+ MyAppVersion \+ "-windows-x64-setup"', "#define MyAppOutputName `"VoiceMouse-$ver-windows-x64-setup`""
+          Set-Content -Path "installer/VoiceMouse_Installer_Windows_CI.iss" -Value $iss -Encoding UTF8
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer/VoiceMouse_Installer_Windows_CI.iss"
 
       - name: upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: windows-x64-zip
-          path: VoiceMouse-${{ needs.determine-version.outputs.clean }}-windows-x64.zip
+          name: windows-x64-setup
+          path: build/windows/x64/runner/VoiceMouse-${{ needs.determine-version.outputs.clean }}-windows-x64-setup.exe
           if-no-files-found: error
 
   release:
@@ -143,16 +161,16 @@ jobs:
               --title "VoiceMouse $VERSION" \
               --notes "**支持平台**（本版本决策：不发布 Windows ARM64 / macOS Intel，不做签名公证）
 
-              - Windows x64（未签名，SmartScreen 可能提示）
-              - macOS arm64 / Apple Silicon（ad-hoc 签名，未公证）
+              - Windows x64（未签名安装程序，SmartScreen 可能提示）
+              - macOS arm64 / Apple Silicon（ad-hoc 签名 DMG，未公证）
 
               **Windows 安装说明**：
-              1. 下载 VoiceMouse-*-windows-x64.zip 并解压
-              2. 运行 voicemouse.exe
-              3. 系统会请求辅助功能权限，请允许（用于监听鼠标按键）
+              1. 下载 VoiceMouse-*-windows-x64-setup.exe
+              2. 双击运行安装向导，按提示完成安装
+              3. 安装完成后运行 VoiceMouse，系统会请求辅助功能权限，请允许（用于监听鼠标按键）
 
               **macOS 安装说明**：
-              1. 解压 zip，将 VoiceMouse.app 拖入「应用程序」
+              1. 打开 DMG，将 VoiceMouse.app 拖入「应用程序」
               2. 首次打开：右键 → 打开（ad-hoc 签名，Gatekeeper 拦截属正常）
               3. 系统设置 → 隐私与安全性 → 辅助功能 → 勾选 VoiceMouse
               4. 若已开启 macOS 听写，默认快捷键 FN 可直接使用

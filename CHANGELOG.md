@@ -5,6 +5,9 @@
 ## [1.0.3] - 2026-08-21
 
 ### Added
+- 新增 Flutter Material 3 风格安装器界面原型（5 页向导：欢迎、协议、位置、安装、完成）。
+- 新增 Windows 安装器封装脚本（Inno Setup）与 macOS 安装器封装脚本（DMG/pkg）。
+- 发布产物由 .zip 压缩包改为安装器：VoiceMouse-<ver>-windows-x64-setup.exe 与 VoiceMouse-<ver>-macos-arm64.dmg。
 - 新增系统托盘支持：点击最小化/关闭按钮时隐藏到系统托盘，双击托盘图标或选择「显示主界面」可恢复窗口。
 - 新增自定义应用图标：任务栏、系统托盘与窗口标题栏均使用 VoiceMouse 专属鼠标+麦克风图标（16x16~256x256 多分辨率 ICO）。
 - 托盘右键菜单支持：显示主界面、暂停/继续运行、退出程序。
