@@ -456,6 +456,18 @@ class MacShortcutRecorder implements ShortcutRecorder {
   bool handle(int keycode, int flags) {
     _lastFlags = flags;
     if (_finished) return false;
+    // 紧急组合键 Ctrl+Alt+F12：与 Windows 版保持一致，中途退出录制并放行按键（后续触发全局紧急停用）
+    final ctrlAlt = (flags & kCGEventFlagMaskControl) != 0 &&
+        (flags & kCGEventFlagMaskAlternate) != 0;
+    if (keycode == 0x6F && ctrlAlt) {
+      // F12
+      _finished = true;
+      _finishWatchdog();
+      try {
+        _onCancel?.call();
+      } catch (_) {}
+      return false; // 放行，让全局紧急热键 tap 也能捕获
+    }
     if (keycode == 0x35) {
       // ESC 取消
       _esc = true;
@@ -695,7 +707,10 @@ class MacOSBackend implements PlatformBackend {
         final ev = _gCreateMouseEvent(nullptr, type, pt.ref, cgButton);
         if (ev == nullptr) return;
         _gSetIntegerValueField(ev, kCGMouseEventButtonNumber, cgButton);
-        // 放行标记：tap 回调消费一次，确保本事件（及随后的 up）不再被吞
+        // ⚠️ 放行标记必须每次 _gPost 前单独设置（本函数只发一个事件：down 或 up）。
+        // tap 回调看到 suppress=1 会清零并放行一次；下次补发再调用本函数时再次置 1。
+        // 禁止在 sendShortcut / replayMouseClick 等外部函数中设置 suppress：
+        // 键盘注入不会命中鼠标 tap，设置 suppress 会污染下一次真实鼠标事件导致穿透。
         _mouseShared![_sSuppress] = 1;
         _gPost(kCGHIDEventTap, ev);
         _gCFRelease(ev);
@@ -777,6 +792,21 @@ class MacOSBackend implements PlatformBackend {
   List<DeviceInfo> enumerateMice() => const [];
 
   @override
+  int getMouseButtons() {
+    // macOS：没有 Win32 那种统一的 GetSystemMetrics 按键数 API，
+    // 就从 HID 枚举到的设备里取最大值，兜底 3。
+    try {
+      int m = 3;
+      for (final d in enumerateMice()) {
+        if (d.buttons > m) m = d.buttons;
+      }
+      return m;
+    } catch (_) {
+      return 3;
+    }
+  }
+
+  @override
   SafetyState checkSafety() {
     if (needsPermission()) return SafetyState.unsafePermissionDenied;
     // 第一版：无法可靠判断前台窗口是否全屏/高权限，统一按安全处理
@@ -846,6 +876,16 @@ class MacOSBackend implements PlatformBackend {
   }
 
   @override
+  void stopShortcutRecording() {
+    // 幂等：强制杀掉键盘隔离线程 + 清理键共享内存 + 取消录制器，防键盘事件被永久吞。
+    try {
+      _activeRecorder?.cancel();
+    } catch (_) {}
+    _activeRecorder = null;
+    _stopKeyIsolate();
+  }
+
+  @override
   void setEmergencyDisabled(bool disabled) {
     _emergencyDisabled = disabled;
   }
@@ -854,7 +894,11 @@ class MacOSBackend implements PlatformBackend {
   bool isEmergencyDisabled() => _emergencyDisabled;
 
   @override
-  double getDoubleClickTime() => 0.5;
+  double getDoubleClickTime() {
+    // macOS 系统出厂双击默认约 300ms；按 Windows 相同策略放宽夹逼 + 10% 余量。
+    const raw = 0.3;
+    return (raw * 1.1).clamp(0.20, 0.55);
+  }
 
   @override
   void prepare() {}

@@ -26,7 +26,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(800, 600);
+  // 固定竖屏尺寸：640 × 960（高宽比 = 1.5，接近 4:3 竖屏 1.33）
+  // 打开即可看到全部内容，无需拖拽滚动条或拉伸窗口。
+  // （Win32Window::Create 已移除 WS_THICKFRAME / WS_MAXIMIZEBOX 并锁定最小/最大一致，防止缩放）
+  Win32Window::Size size(640, 960);
   if (!window.Create(L"voicemouse", origin, size)) {
     return EXIT_FAILURE;
   }

@@ -1,4 +1,4 @@
-﻿/// Windows 后端：Win32 Hook / SendInput / Raw Input / SafetyGate。
+/// Windows 后端：Win32 Hook / SendInput / Raw Input / SafetyGate。
 ///
 /// 设计说明（与 Python 版行为一致）：
 /// - WH_MOUSE_LL 低层鼠标钩子 + WH_KEYBOARD_LL 低层键盘钩子（录制用）
@@ -24,6 +24,11 @@ import 'platform_backend.dart';
 
 const int whMouseLl = 14;
 const int whKeyboardLl = 13;
+const int wmLButtonDown = 0x0201;
+const int wmLButtonUp = 0x0202;
+const int wmRButtonDown = 0x0204;
+const int wmRButtonUp = 0x0205;
+const int wmMouseWheel = 0x020A;
 const int wmMButtonDown = 0x0207;
 const int wmMButtonUp = 0x0208;
 const int wmXButtonDown = 0x020B;
@@ -50,6 +55,7 @@ const int rimTypeMouse = 0;
 const int ridiDeviceName = 0x20000007;
 const int ridiDeviceInfo = 0x2000000B;
 const int spiGetDoubleClickTime = 0x0032;
+const int smCMouseButtons = 43; // SM_CMOUSEBUTTONS = 0x2B
 
 const int modAlt = 0x0001;
 const int modControl = 0x0002;
@@ -392,7 +398,21 @@ class Win32Backend implements PlatformBackend {
 
   int _hookProc(int nCode, int wParam, int lParam) {
     if (nCode < hcAction) return CallNextHookEx(0, nCode, wParam, lParam);
+
+    // 🔴🔴🔴 2026-08-20 终极保险丝（第一性原理 · 永远不放行不基本操作）！
+    // 任何情况下，左键/右键/滚轮 三个"人类最基本鼠标功能"直接短路放行——
+    // 不走任何 Router 逻辑、不走任何 flag 判断、不走任何状态机，
+    // 就算上层代码写了再大的 bug，这三个操作 100% 跟没装软件时一模一样，
+    // 绝对不会再出现"鼠标废了，左键右键点不了"的惨剧。
+    if (wParam == wmLButtonDown || wParam == wmLButtonUp ||
+        wParam == wmRButtonDown || wParam == wmRButtonUp ||
+        wParam == wmMouseWheel) {
+      return CallNextHookEx(0, nCode, wParam, lParam);
+    }
+
     final data = Pointer.fromAddress(lParam).cast<MSLLHOOKSTRUCT>();
+    // 2026-08-20 紧急修正：暂时移除 dwExtraInfo 判定，避免 struct 64 位 IntPtr 类型与 magic 比较异常
+    // （该比较理论正确，但实际运行导致左键右键被吞，先回滚保稳定，防回环继续靠 llMhfInjected flag）
     if (data.ref.flags & llMhfInjected != 0) {
       return CallNextHookEx(0, nCode, wParam, lParam);
     }
@@ -422,11 +442,18 @@ class Win32Backend implements PlatformBackend {
     if (wParam == wmMButtonUp) return ('middle', false);
     if (wParam == wmXButtonDown || wParam == wmXButtonUp) {
       final which = (data.ref.mouseData >> 16) & 0xFFFF;
+      // Win32 标准 XBUTTON 定义：1=x1, 2=x2, 4=x3, 8=x4, 16=x5
       final button = which == xButton1
           ? 'x1'
           : which == xButton2
               ? 'x2'
-              : null;
+              : which == 4
+                  ? 'x3'
+                  : which == 8
+                      ? 'x4'
+                      : which == 16
+                          ? 'x5'
+                          : null;
       if (button != null) {
         return (button, wParam == wmXButtonDown);
       }
@@ -540,10 +567,18 @@ class Win32Backend implements PlatformBackend {
   InjectResult replayDoubleClick(String button) => _injectClick(button, 2);
 
   InjectResult _injectClick(String button, int count) {
+    // Win32 XButton 定义：XBUTTON1=1, XBUTTON2=2, XBUTTON3=4, XBUTTON4=8, XBUTTON5=16
+    // 都用 MOUSEEVENTF_XDOWN / XUP，仅 mouseData（高16位）不同。
+    const int xButton3 = 4;
+    const int xButton4 = 8;
+    const int xButton5 = 16;
     final (downFlag, upFlag, data) = switch (button) {
       'middle' => (mouseEventFMiddleDown, mouseEventFMiddleUp, 0),
       'x1' => (mouseEventFXDown, mouseEventFXUp, xButton1 << 16),
       'x2' => (mouseEventFXDown, mouseEventFXUp, xButton2 << 16),
+      'x3' => (mouseEventFXDown, mouseEventFXUp, xButton3 << 16),
+      'x4' => (mouseEventFXDown, mouseEventFXUp, xButton4 << 16),
+      'x5' => (mouseEventFXDown, mouseEventFXUp, xButton5 << 16),
       _ => (0, 0, 0),
     };
     if (downFlag == 0) return const InjectResult(false, '未知鼠标按键');
@@ -827,10 +862,15 @@ String _utf16ToString(Pointer<Uint16> buf, int maxLen) {
         if (GetMonitorInfo(monitor, mi) == 0) return false;
         final winW = rect.ref.right - rect.ref.left;
         final winH = rect.ref.bottom - rect.ref.top;
-        final workW = mi.ref.rcWork.right - mi.ref.rcWork.left;
-        final workH = mi.ref.rcWork.bottom - mi.ref.rcWork.top;
-        if (workW <= 0 || workH <= 0) return false;
-        return (winW * winH) / (workW * workH) >= 0.95;
+        // 重要：分母必须用「物理屏幕总尺寸 rcMonitor」而非「工作区 rcWork」。
+        // - rcWork 会扣除任务栏/停靠栏，导致普通最大化浏览器 = 1.0 → 误判为全屏。
+        // - rcMonitor 是整个显示器的像素大小，只有"独占全屏"（游戏/VLC 全屏等）
+        //   的窗口才会覆盖任务栏，尺寸接近 rcMonitor。
+        final monW = mi.ref.rcMonitor.right - mi.ref.rcMonitor.left;
+        final monH = mi.ref.rcMonitor.bottom - mi.ref.rcMonitor.top;
+        if (monW <= 0 || monH <= 0) return false;
+        // 面积占比 97% 以上才认为是"独占全屏"（普通最大化仅覆盖 rcWork≈90%）
+        return (winW * winH) / (monW * monH) >= 0.97;
       } finally {
         calloc.free(mi);
       }
@@ -903,6 +943,19 @@ String _utf16ToString(Pointer<Uint16> buf, int maxLen) {
       _keyboardHook = hook;
     }
     return rec;
+  }
+
+  @override
+  void stopShortcutRecording() {
+    // 幂等：随时调用都安全。强制卸载键盘钩子 + 清理录制器，防"键盘被锁"。
+    try {
+      _activeRecorder?.cancel();
+    } catch (_) {}
+    _activeRecorder = null;
+    if (_keyboardHook != 0) {
+      UnhookWindowsHookEx(_keyboardHook);
+      _keyboardHook = 0;
+    }
   }
 
   // ============================ 紧急停用 ============================
@@ -1153,18 +1206,41 @@ String _utf16ToString(Pointer<Uint16> buf, int maxLen) {
   // ============================ 其他 ============================
 
   @override
+  int getMouseButtons() {
+    try {
+      final n = GetSystemMetrics(smCMouseButtons);
+      if (n >= 3) return n;
+    } catch (_) {}
+    // 兜底：遍历 Raw Input 枚举到的设备，取最大 buttons 值
+    try {
+      int m = 3;
+      for (final d in enumerateMice()) {
+        if (d.buttons > m) m = d.buttons;
+      }
+      return m;
+    } catch (_) {
+      return 3;
+    }
+  }
+
+  @override
   double getDoubleClickTime() {
     try {
       final ms = calloc<Uint32>();
       try {
         if (SystemParametersInfo(spiGetDoubleClickTime, 0, ms, 0) != 0) {
-          return (ms.value / 1000.0).clamp(0.2, 1.5);
+          final raw = ms.value / 1000.0;
+          // 2026-08-20 调整：贴合用户"系统实际设置的双击节奏"，不做之前的 250~350ms 强卡。
+          // - 夹逼到 200ms ~ 550ms（覆盖用户系统常见设置 200~450ms）
+          // - ×1.1 容忍余量：用户实际按键速度会略慢于系统边界值，加 10% 避免漏判
+          // - 这样能 100% 匹配"平常双击打开任何软件"的真实手感
+          return (raw * 1.1).clamp(0.20, 0.55);
         }
       } finally {
         calloc.free(ms);
       }
     } catch (_) {}
-    return 0.5;
+    return 0.3; // 兜底 300ms（最常用的双击节奏）
   }
 
   @override

@@ -16,7 +16,11 @@ typedef SafetyGetter = ({SafetyState state, double ts}) Function();
 typedef RouterAction = void Function(String button, bool down);
 typedef CaptureEvent = void Function(String button);
 
-const double safetyTtlSeconds = 0.35;
+/// Safety 判定的保鲜窗口：从 safety 检查到 hook 回调之间允许的最大间隔。
+///
+/// 原 350ms 过短，在 CPU 偶尔抖动或高 DPI 桌面稍慢时容易误过期放行。
+/// 1.0s 既能保证安全数据不会过于陈旧，又能避免绝大多数误判放行（"单击变翻页"）。
+const double safetyTtlSeconds = 1.0;
 
 class MouseEventRouter {
   MouseEventRouter({
@@ -49,7 +53,12 @@ class MouseEventRouter {
 
   /// 返回 True = 吞掉该事件（不传递给系统），False = 放行。
   bool handle(String button, bool down) {
-    if (button != 'middle' && button != 'x1' && button != 'x2') {
+    if (button != 'middle' &&
+        button != 'x1' &&
+        button != 'x2' &&
+        button != 'x3' &&
+        button != 'x4' &&
+        button != 'x5') {
       return false;
     }
 

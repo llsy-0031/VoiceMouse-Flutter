@@ -90,6 +90,12 @@ abstract class PlatformBackend {
   /// 启动快捷键录制（拦截模式）。
   ShortcutRecorder startShortcutRecording({String mode = 'multi'});
 
+  /// 停止快捷键录制并卸载键盘钩子。必须幂等。
+  ///
+  /// 主要用于：录制弹窗异常关闭 / 程序退出 / 紧急停用时，
+  /// 强制卸载 WH_KEYBOARD_LL 钩子，防止用户键盘被永久吞掉（"锁键盘"）。
+  void stopShortcutRecording();
+
   /// 紧急停用（Windows Ctrl+Alt+F12）。跨平台可选实现。
   void setEmergencyDisabled(bool disabled);
 
@@ -100,6 +106,25 @@ abstract class PlatformBackend {
 
   /// 系统双击速度（秒），用于双击判定窗口。
   double getDoubleClickTime() => 0.5;
+
+  /// 当前系统连接的鼠标上最多有多少个物理按键（含左/右键）。
+  ///
+  /// - Windows 走 GetSystemMetrics(SM_CMOUSEBUTTONS)：
+  ///   5 键游戏鼠标会返回 5（左+右+中+X1+X2），8 键鼠标可能返回 8。
+  /// - 驱动层面额外的"宏键/多媒体键"如果不走标准 XButton，
+  ///   本值可能仍返回 5（Win32 API 上限），但 UI 仍按此值展示选项。
+  /// - 失败或无数据时兜底返回 3（左+右+中）。
+  int getMouseButtons() {
+    try {
+      int m = 3;
+      for (final d in enumerateMice()) {
+        if (d.buttons > m) m = d.buttons;
+      }
+      return m;
+    } catch (_) {
+      return 3;
+    }
+  }
 
   /// 进入 GUI 主循环前的准备工作（后台线程等）。
   void prepare();

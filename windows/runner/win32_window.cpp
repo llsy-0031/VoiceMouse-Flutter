@@ -134,8 +134,14 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  // 固定工具面板窗口：
+  // - 移除 WS_THICKFRAME：禁止拖拽边框改变大小
+  // - 移除 WS_MAXIMIZEBOX：禁止最大化（最大化会破坏竖屏布局）
+  // - 保留 WS_MINIMIZEBOX / WS_SYSMENU / WS_CAPTION：允许最小化、关闭和标题栏
+  const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+
   HWND window = CreateWindow(
-      window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
+      window_class, title.c_str(), style,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
       nullptr, nullptr, GetModuleHandle(nullptr), this);
@@ -143,6 +149,10 @@ bool Win32Window::Create(const std::wstring& title,
   if (!window) {
     return false;
   }
+
+  // 记录固定尺寸（WM_GETMINMAXINFO 会锁定 min/max track = 这个值，彻底防止缩放）
+  fixed_width_ = Scale(size.width, scale_factor);
+  fixed_height_ = Scale(size.height, scale_factor);
 
   UpdateTheme(window);
 
@@ -187,10 +197,36 @@ Win32Window::MessageHandler(HWND hwnd,
       }
       return 0;
 
+    // 锁定窗口最小/最大可拖拽尺寸 = 固定尺寸，彻底防止拉边框改变大小。
+    case WM_GETMINMAXINFO: {
+      if (fixed_width_ > 0 && fixed_height_ > 0) {
+        auto* mmi = reinterpret_cast<MINMAXINFO*>(lparam);
+        mmi->ptMinTrackSize.x = fixed_width_;
+        mmi->ptMinTrackSize.y = fixed_height_;
+        mmi->ptMaxTrackSize.x = fixed_width_;
+        mmi->ptMaxTrackSize.y = fixed_height_;
+        // 也限制最大化尺寸（虽然 style 已去 MAXIMIZEBOX，此处为双保险）
+        mmi->ptMaxSize.x = fixed_width_;
+        mmi->ptMaxSize.y = fixed_height_;
+        return 0;
+      }
+      break;
+    }
+
+    // 额外保险：拦截 SC_MAXIMIZE / SC_RESTORE 等会改变尺寸的系统菜单命令
+    case WM_SYSCOMMAND: {
+      const auto cmd = wparam & 0xFFF0;
+      if (cmd == SC_MAXIMIZE) return 0;  // 彻底禁止最大化
+      break;
+    }
+
     case WM_DPICHANGED: {
+      // DPI 改变时同步更新固定尺寸（按新的 DPI 重新缩放目标逻辑尺寸）
       auto newRectSize = reinterpret_cast<RECT*>(lparam);
       LONG newWidth = newRectSize->right - newRectSize->left;
       LONG newHeight = newRectSize->bottom - newRectSize->top;
+      fixed_width_ = newWidth;
+      fixed_height_ = newHeight;
 
       SetWindowPos(hwnd, nullptr, newRectSize->left, newRectSize->top, newWidth,
                    newHeight, SWP_NOZORDER | SWP_NOACTIVATE);

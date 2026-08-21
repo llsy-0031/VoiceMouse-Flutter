@@ -1,4 +1,4 @@
-﻿/// 运行页：状态卡片 + 紧急停用横幅 + 摘要 + 统计 + 实时测试 + 安全状态行。
+/// 运行页：状态卡片 + 紧急停用横幅 + 摘要 + 统计 + 实时测试 + 安全状态行。
 library;
 
 import 'package:flutter/material.dart';
@@ -17,16 +17,25 @@ class RunPage extends StatelessWidget {
     final c = controller;
     final colors = colorsOf(context);
     final emergency = c.backend.isEmergencyDisabled();
+    // 运行页摘要用"按键影响范围说明"替代原来笼统的 triggerSubtitle：
+    // - 选侧键时明确写"中键与滚轮不涉及"（用户补充的设计思路）
+    // - 选中键时显示"双击保留翻页（500ms 判定）"等具体信息
+    final triggerSubtitle = c.buttonImpactNote;
 
-    return SingleChildScrollView(
-      key: ValueKey('run'),
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 30),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return ScrollConfiguration(
+      // 用户明确要求"不要滚动条"——移除滚动条视觉，
+      // 但仍保留最小的滚动兜底（万一内容略溢出也不会出现黄色 overflow 警告）。
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+      child: SingleChildScrollView(
+        key: ValueKey('run'),
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           // ===== 状态卡片 =====
           _StatusCard(controller: c),
           const SizedBox(height: 14),
@@ -54,7 +63,7 @@ class RunPage extends StatelessWidget {
               children: [
                 VMListRow(
                   title: '触发按键',
-                  subtitle: '单击触发 · 双击保留原功能',
+                  subtitle: triggerSubtitle,
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -99,11 +108,12 @@ class RunPage extends StatelessWidget {
 
           // ===== 安全状态行 =====
           _SafetyLine(controller: c),
-        ],
-          ),
-        ),
-      ),
-    );
+        ], // ← RunPage 最外层 Column.children 数组结束
+      ),   // ← Column()
+    ),     // ← ConstrainedBox()
+  ),       // ← Center()
+ ),         // ← SingleChildScrollView()
+);          // ← ScrollConfiguration()（return 结束）
   }
 }
 
@@ -330,52 +340,33 @@ class _StatsCard extends StatelessWidget {
                       color: colors.text)),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('$minutes',
-                  style: TextStyle(
-                      fontSize: 40,
-                      fontWeight: FontWeight.w800,
-                      color: colors.accent,
-                      height: 1)),
-              const SizedBox(width: 6),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text('分钟 累计',
-                    style: TextStyle(fontSize: 13, color: colors.text3)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text('这些时间，本来都要花在打字上（估算）',
-              style: TextStyle(fontSize: 12.5, color: colors.text2)),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+          // 只保留 3 列（用户明确要求：删除上面重复的"大字 0 分钟 累计"，
+          // 只要一排"累计节省时间 / 平均口述速度 / 陪伴天数"）。
           Row(
             children: [
               _StatCell(
-                value: '${stats['words_est']}',
-                unit: '字',
-                label: '累计口述\n相当于少打这么多字',
+                value: '$minutes',
+                unit: '分钟',
+                label: '累计为你节省\n这些时间本来都要花在打字上',
                 colors: colors,
               ),
               _StatCell(
                 value: '${stats['speed_wpm']}',
                 unit: '字/分',
-                label: '平均口述速度',
+                label: '平均口述速度\n基于累计触发次数估算',
                 colors: colors,
               ),
               _StatCell(
                 value: '${stats['days']}',
                 unit: '天',
-                label: '已陪伴你',
+                label: '已陪伴你\n从你第一次开口起',
                 colors: colors,
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Text('从你第一次开口起，VoiceMouse 就一直在这里，记录、陪伴、见证你每一次说话成字。',
+          Text('VoiceMouse 只负责触发快捷键，不记录任何语音内容；数据为估算参考。',
               style: TextStyle(fontSize: 12, color: colors.text3, height: 1.4)),
         ],
       ),
@@ -409,7 +400,8 @@ class _StatCell extends StatelessWidget {
                   style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.w700,
-                      color: colors.text,
+                      // 用户要求：所有数字（包括 0）统一显示为蓝色主题色（accent）。
+                      color: colors.accent,
                       height: 1)),
               const SizedBox(width: 3),
               Padding(
@@ -508,9 +500,9 @@ class _TestCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text('滚动鼠标滚轮，或按下中键（双击＝自动滚动），上方内容应随之滚动；若失效说明触发设置影响了原功能。',
               style: TextStyle(fontSize: 12, color: colors.text3, height: 1.4)),
-        ],
-      ),
-    );
+        ], // ← _TestCard 内部 Column.children 结束
+      ), // ← _TestCard 内部 Column()
+    ); // ← _TestCard 的 VMCard + return 结束
   }
 }
 

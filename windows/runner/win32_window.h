@@ -92,6 +92,10 @@ class Win32Window {
 
   bool quit_on_close_ = false;
 
+  // 固定窗口尺寸（物理像素，已按 DPI 缩放）。WM_GETMINMAXINFO 会锁定为该值，禁止缩放。
+  int fixed_width_ = 0;
+  int fixed_height_ = 0;
+
   // window handle for top level window.
   HWND window_handle_ = nullptr;
 
