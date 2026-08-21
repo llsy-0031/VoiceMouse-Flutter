@@ -1,11 +1,14 @@
 // ignore_for_file: non_constant_identifier_names, camel_case_types, library_private_types_in_public_api
 import 'dart:async';
-import 'dart:ffi';
+import 'dart:ffi' hide Size;
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'app/app_controller.dart';
 import 'core/log.dart';
@@ -167,10 +170,14 @@ class VoiceMouseApp extends StatefulWidget {
   State<VoiceMouseApp> createState() => _VoiceMouseAppState();
 }
 
-class _VoiceMouseAppState extends State<VoiceMouseApp> with TrayListener {
+class _VoiceMouseAppState extends State<VoiceMouseApp>
+    with TrayListener, WindowListener {
   late final PlatformBackend _backend;
   late final AppController _controller;
   AppLifecycleListener? _lifecycle;
+  String? _trayIconPath;
+  bool _trayHintShown = false;
+  Timer? _trayHintRestoreTimer;
 
   @override
   void initState() {
@@ -178,8 +185,9 @@ class _VoiceMouseAppState extends State<VoiceMouseApp> with TrayListener {
     _backend = Platform.isMacOS ? MacOSBackend() : Win32Backend();
     _controller = AppController(_backend);
     _controller.start();
-    _initTray();
+    _initWindowAndTray();
     trayManager.addListener(this);
+    windowManager.addListener(this);
     // 录制中切走窗口（失焦）自动退出录制，避免键盘被钩子长期吞掉
     _lifecycle = AppLifecycleListener(
       onInactive: _onWindowInactive,
@@ -192,17 +200,52 @@ class _VoiceMouseAppState extends State<VoiceMouseApp> with TrayListener {
     }
   }
 
-  Future<void> _initTray() async {
+  Future<void> _initWindowAndTray() async {
     try {
-      await trayManager.setToolTip('VoiceMouse 语音鼠标');
+      await windowManager.ensureInitialized();
+      await windowManager.setPreventClose(true);
+      // 等待窗口准备就绪后再初始化托盘，避免托盘图标绑定失败。
+      // Windows 使用无边框 + 自定义顶栏；macOS 保留系统标题栏与交通灯按钮。
+      await windowManager.waitUntilReadyToShow(
+        WindowOptions(
+          title: 'VoiceMouse',
+          minimumSize: const Size(520, 480),
+          size: const Size(720, 640),
+          center: true,
+          backgroundColor: Colors.transparent,
+          skipTaskbar: false,
+          titleBarStyle:
+              Platform.isWindows ? TitleBarStyle.hidden : TitleBarStyle.normal,
+        ),
+        () async {
+          await windowManager.show();
+          await windowManager.focus();
+        },
+      );
+      await _extractTrayIcon();
       await _syncTrayMenu();
+    } catch (e, stack) {
+      logWarn('tray', '托盘/窗口管理初始化失败: $e\n$stack');
+    }
+  }
+
+  /// 把 Flutter asset 中的图标释放到临时目录，供 tray_manager 使用。
+  /// tray_manager 需要本地文件路径，不能直接读 asset bundle。
+  Future<void> _extractTrayIcon() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final iconFile = File('${tempDir.path}/voicemouse_tray_icon.png');
+      final bytes = await rootBundle.load('assets/app_icon.png');
+      await iconFile.writeAsBytes(bytes.buffer.asUint8List());
+      _trayIconPath = iconFile.path;
+      await trayManager.setIcon(_trayIconPath!);
+      await trayManager.setToolTip('VoiceMouse 语音鼠标');
     } catch (_) {
-      // 托盘失败不影响主体功能
+      // 图标释放失败仍继续：保留默认图标或空托盘，不影响主体功能
     }
   }
 
   Future<void> _syncTrayMenu() async {
-    await trayManager.setToolTip('VoiceMouse 语音鼠标');
     await trayManager.setContextMenu(
       Menu(
         items: [
@@ -218,10 +261,20 @@ class _VoiceMouseAppState extends State<VoiceMouseApp> with TrayListener {
   }
 
   @override
+  void onTrayIconMouseDown() async {
+    await _showFromTray();
+  }
+
+  @override
+  void onTrayIconRightMouseDown() async {
+    await trayManager.popUpContextMenu();
+  }
+
+  @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
       case 'show':
-        // 窗口常驻，无需额外动作
+        _showFromTray();
         break;
       case 'toggle':
         if (_controller.running) {
@@ -237,7 +290,48 @@ class _VoiceMouseAppState extends State<VoiceMouseApp> with TrayListener {
     }
   }
 
+  @override
+  void onWindowClose() async {
+    // 关闭按钮不退出，而是收进托盘
+    await _hideToTray();
+  }
+
+  @override
+  void onWindowMinimize() async {
+    // 最小化按钮直接收进托盘，不在任务栏占位
+    await _hideToTray();
+  }
+
+  Future<void> _hideToTray() async {
+    try {
+      await windowManager.hide();
+      _showTrayHintOnce();
+    } catch (_) {}
+  }
+
+  Future<void> _showFromTray() async {
+    try {
+      await windowManager.show();
+      await windowManager.restore();
+      await windowManager.focus();
+    } catch (_) {}
+  }
+
+  /// 首次收到托盘提示时，把托盘 tooltip 临时改成提示文案，6 秒后恢复。
+  void _showTrayHintOnce() {
+    if (_trayHintShown) return;
+    _trayHintShown = true;
+    try {
+      trayManager.setToolTip('VoiceMouse 已最小化到托盘，右键图标可退出');
+      _trayHintRestoreTimer?.cancel();
+      _trayHintRestoreTimer = Timer(const Duration(seconds: 6), () {
+        trayManager.setToolTip('VoiceMouse 语音鼠标');
+      });
+    } catch (_) {}
+  }
+
   void _quit() {
+    _trayHintRestoreTimer?.cancel();
     _controller.shutdown();
     exit(0);
   }
@@ -245,7 +339,9 @@ class _VoiceMouseAppState extends State<VoiceMouseApp> with TrayListener {
   @override
   void dispose() {
     _lifecycle?.dispose();
+    _trayHintRestoreTimer?.cancel();
     trayManager.removeListener(this);
+    windowManager.removeListener(this);
     _controller.shutdown();
     super.dispose();
   }

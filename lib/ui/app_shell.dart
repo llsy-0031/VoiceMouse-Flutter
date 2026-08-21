@@ -2,8 +2,10 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../app/app_controller.dart';
 import 'run_page.dart';
@@ -107,60 +109,106 @@ class _AppShellState extends State<AppShell> {
 
   Widget _buildHeader(BuildContext context) {
     final colors = colorsOf(context);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
-      decoration: BoxDecoration(
-        color: colors.bg,
-        border: Border(bottom: BorderSide(color: colors.hairline, width: 0.5)),
-      ),
-      child: Row(
-        children: [
-          // Logo
-          Row(
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: colors.accent,
-                  borderRadius: BorderRadius.circular(8),
+    final isWindows = Platform.isWindows;
+    // 无边框窗口模式下，整个自定义顶栏需要支持拖动
+    return DragToMoveArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(18, 10, 10, 10),
+        decoration: BoxDecoration(
+          color: colors.bg,
+          border: Border(bottom: BorderSide(color: colors.hairline, width: 0.5)),
+        ),
+        child: Row(
+          children: [
+            // Logo
+            Row(
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: colors.accent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.mouse, color: Colors.white, size: 18),
                 ),
-                child: const Icon(Icons.mouse, color: Colors.white, size: 18),
+                const SizedBox(width: 9),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('VoiceMouse',
+                        style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                            color: colors.text)),
+                    Text('把鼠标变成语音输入键',
+                        style: TextStyle(fontSize: 10.5, color: colors.text3)),
+                  ],
+                ),
+              ],
+            ),
+            const Spacer(),
+            VMSegmented(
+              options: const [('run', '运行'), ('settings', '设置')],
+              value: _page,
+              onChanged: (v) => setState(() => _page = v),
+            ),
+            const Spacer(),
+            IconButton(
+              onPressed: _toggleTheme,
+              tooltip: '切换深浅色',
+              icon: Icon(
+                (Theme.of(context).brightness == Brightness.dark)
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
+                size: 19,
+                color: colors.text2,
               ),
-              const SizedBox(width: 9),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('VoiceMouse',
-                      style: TextStyle(
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w700,
-                          color: colors.text)),
-                  Text('把鼠标变成语音输入键',
-                      style: TextStyle(fontSize: 10.5, color: colors.text3)),
-                ],
+            ),
+            // 自定义窗口控制按钮（仅 Windows，无边框模式下替代系统按钮）
+            if (isWindows) ...[
+              _buildWindowControlButton(
+                icon: Icons.remove,
+                tooltip: '最小化到托盘',
+                onPressed: () => windowManager.hide(),
+                colors: colors,
+              ),
+              _buildWindowControlButton(
+                icon: Icons.close,
+                tooltip: '关闭到托盘',
+                onPressed: () => windowManager.hide(),
+                colors: colors,
+                hoverColor: colors.redSoft,
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWindowControlButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    required VMColors colors,
+    Color? hoverColor,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          hoverColor: hoverColor ?? colors.hairline,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            width: 34,
+            height: 28,
+            alignment: Alignment.center,
+            child: Icon(icon, size: 16, color: colors.text2),
           ),
-          const Spacer(),
-          VMSegmented(
-            options: const [('run', '运行'), ('settings', '设置')],
-            value: _page,
-            onChanged: (v) => setState(() => _page = v),
-          ),
-          const Spacer(),
-          IconButton(
-            onPressed: _toggleTheme,
-            tooltip: '切换深浅色',
-            icon: Icon(
-              (Theme.of(context).brightness == Brightness.dark)
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
-              size: 19,
-              color: colors.text2,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
