@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:image/image.dart' as img;
 import 'package:window_manager/window_manager.dart';
 
 import 'app/app_controller.dart';
@@ -209,8 +210,8 @@ class _VoiceMouseAppState extends State<VoiceMouseApp>
       await windowManager.waitUntilReadyToShow(
         WindowOptions(
           title: 'VoiceMouse',
-          minimumSize: const Size(520, 480),
-          size: const Size(720, 640),
+          minimumSize: const Size(560, 800),
+          size: const Size(794, 1123), // A4 竖版 @ 96 DPI
           center: true,
           backgroundColor: Colors.transparent,
           skipTaskbar: false,
@@ -229,20 +230,49 @@ class _VoiceMouseAppState extends State<VoiceMouseApp>
     }
   }
 
-  /// 把 Flutter asset 中的图标释放到临时目录，供 tray_manager 使用。
+  /// 把 Flutter asset 中的 PNG 图标释放到临时目录，供 tray_manager 使用。
   /// tray_manager 需要本地文件路径，不能直接读 asset bundle。
+  /// Windows 托盘原生对 ICO 兼容性最好，因此保留 PNG 源文件的同时，
+  /// 在运行时把 PNG 转成多尺寸 ICO 给系统托盘显示，macOS 直接用彩色 PNG。
   Future<void> _extractTrayIcon() async {
     try {
       final tempDir = await getTemporaryDirectory();
-      final iconFile = File('${tempDir.path}/voicemouse_tray_icon.png');
-      final bytes = await rootBundle.load('assets/app_icon.png');
-      await iconFile.writeAsBytes(bytes.buffer.asUint8List());
-      _trayIconPath = iconFile.path;
+      final bytes = await rootBundle.load('assets/tray_icon.png');
+      final pngBytes = bytes.buffer.asUint8List();
+      final pngFile = File('${tempDir.path}/voicemouse_tray_icon.png');
+      await pngFile.writeAsBytes(pngBytes);
+      _trayIconPath = pngFile.path;
+
+      if (Platform.isWindows) {
+        // Windows 托盘需要 ICO 才能稳定显示彩色图标
+        final icoFile = File('${tempDir.path}/voicemouse_tray_icon.ico');
+        final icoBytes = await _pngToIco(pngBytes);
+        await icoFile.writeAsBytes(icoBytes);
+        _trayIconPath = icoFile.path;
+      }
+
       await trayManager.setIcon(_trayIconPath!);
       await trayManager.setToolTip('VoiceMouse 语音鼠标');
-    } catch (_) {
+    } catch (e, stack) {
       // 图标释放失败仍继续：保留默认图标或空托盘，不影响主体功能
+      logWarn('tray', '托盘图标初始化失败: $e\n$stack');
     }
+  }
+
+  /// 将 PNG 字节转换为多尺寸 ICO 字节。
+  /// 生成的 ICO 文件 Windows 托盘可正常显示彩色图标。
+  Future<List<int>> _pngToIco(List<int> pngBytes) async {
+    final source = img.decodePng(pngBytes);
+    if (source == null) throw Exception('无法解码 tray_icon.png');
+
+    final sizes = [16, 24, 32, 48, 64];
+    final images = <img.Image>[];
+    for (final size in sizes) {
+      images.add(img.copyResize(source, width: size, height: size));
+    }
+
+    final ico = img.encodeIco(images);
+    return ico;
   }
 
   Future<void> _syncTrayMenu() async {
@@ -366,3 +396,5 @@ class _VoiceMouseAppState extends State<VoiceMouseApp>
     );
   }
 }
+
+
